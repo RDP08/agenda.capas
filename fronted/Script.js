@@ -4,18 +4,23 @@
  */
 
 // Configuración de la API
-const API_URL = 'http://localhost:3001/api/contacts';
+const API_URL = 'http://www.raydelto.org/agenda.php';
+
+// Proxy CORS alternatives (descomenta una de estas opciones si tienes problemas de CORS)
+// const API_URL = 'https://cors-anywhere.herokuapp.com/http://www.raydelto.org/agenda.php';
+// const API_URL = 'https://api.allorigins.win/raw?url=' + encodeURIComponent('http://www.raydelto.org/agenda.php');
+// const API_URL = 'https://corsproxy.io/?' + encodeURIComponent('http://www.raydelto.org/agenda.php');
 
 // Variables globales
 let contacts = [];
 let isLoading = false;
 
-// Elementos del DOM
-const contactForm = document.getElementById('contact-form');
-const contactsContainer = document.getElementById('contacts-container');
-const messageContainer = document.getElementById('message-container');
-const refreshBtn = document.getElementById('refresh-btn');
-const contactCount = document.getElementById('contact-count');
+// Elementos del DOM (se inicializarán cuando el DOM esté listo)
+let contactForm = null;
+let contactsContainer = null;
+let messageContainer = null;
+let refreshBtn = null;
+let contactCount = null;
 
 /**
  * CLASE PRINCIPAL - AGENDA
@@ -32,14 +37,21 @@ class Agenda {
      * Inicializa los event listeners
      */
     initializeEventListeners() {
-        contactForm.addEventListener('submit', (e) => this.handleFormSubmit(e));
-        refreshBtn.addEventListener('click', () => this.refreshContacts());
+        if (contactForm) {
+            contactForm.addEventListener('submit', (e) => this.handleFormSubmit(e));
+        }
+        
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => this.refreshContacts());
+        }
         
         // Validación en tiempo real
-        const inputs = contactForm.querySelectorAll('input');
-        inputs.forEach(input => {
-            input.addEventListener('input', () => this.clearMessages());
-        });
+        if (contactForm) {
+            const inputs = contactForm.querySelectorAll('input');
+            inputs.forEach(input => {
+                input.addEventListener('input', () => this.clearMessages());
+            });
+        }
     }
 
     /**
@@ -66,13 +78,13 @@ class Agenda {
     async handleFormSubmit(e) {
         e.preventDefault();
         
-        if (isLoading) return;
+        if (isLoading || !contactForm) return;
         
         const formData = new FormData(contactForm);
         const contactData = {
-            nombre: formData.get('nombre')?.trim() || '',
-            apellido: formData.get('apellido')?.trim() || '',
-            telefono: formData.get('telefono')?.trim() || ''
+            nombre: (formData.get('nombre') || '').trim(),
+            apellido: (formData.get('apellido') || '').trim(),
+            telefono: (formData.get('telefono') || '').trim()
         };
 
         // Validación
@@ -101,10 +113,14 @@ class Agenda {
      * Habilita/deshabilita el formulario
      */
     toggleFormState(disabled) {
+        if (!contactForm) return;
+        
         const inputs = contactForm.querySelectorAll('input, button');
         const submitBtn = contactForm.querySelector('button[type="submit"]');
         
-        inputs.forEach(input => input.disabled = disabled);
+        inputs.forEach(input => {
+            input.disabled = disabled;
+        });
         
         if (submitBtn) {
             submitBtn.textContent = disabled ? 'Guardando...' : 'Guardar Contacto';
@@ -135,10 +151,12 @@ class Agenda {
             
             const response = await fetch(API_URL, {
                 method: 'GET',
+                mode: 'cors',
                 headers: {
                     'Accept': 'application/json',
-                    //'Cache-Control': 'no-cache'
-                }
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'omit'
             });
 
             if (!response.ok) {
@@ -164,9 +182,10 @@ class Agenda {
         } catch (error) {
             console.error('Error al cargar contactos:', error);
             
-            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            // Manejo específico de errores CORS
+            if (error.name === 'TypeError' || error.message.includes('CORS') || error.message.includes('fetch')) {
                 UIManager.showCORSError();
-                MessageHandler.showError('Error de conexión. Verifica el servidor o la configuración CORS.');
+                MessageHandler.showError('Error de CORS. Usa una de las soluciones sugeridas.');
             } else {
                 UIManager.showError(`Error al cargar contactos: ${error.message}`);
                 MessageHandler.showError(`No se pudieron cargar los contactos: ${error.message}`);
@@ -183,10 +202,12 @@ class Agenda {
         try {
             const response = await fetch(API_URL, {
                 method: 'POST',
+                mode: 'cors',
                 headers: {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
+                credentials: 'omit',
                 body: JSON.stringify(contactData)
             });
 
@@ -202,7 +223,10 @@ class Agenda {
             }
 
             MessageHandler.showSuccess(`Contacto "${contactData.nombre} ${contactData.apellido}" agregado exitosamente`);
-            contactForm.reset();
+            
+            if (contactForm) {
+                contactForm.reset();
+            }
             
             // Recargar la lista después de un breve delay
             setTimeout(() => this.loadContacts(true), 1000);
@@ -210,8 +234,9 @@ class Agenda {
         } catch (error) {
             console.error('Error al agregar contacto:', error);
             
-            if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                MessageHandler.showError('Error de conexión. Verifica tu conexión a internet y la configuración CORS.');
+            // Manejo específico de errores CORS
+            if (error.name === 'TypeError' || error.message.includes('CORS') || error.message.includes('fetch')) {
+                MessageHandler.showError('Error de CORS. Verifica la configuración del servidor o usa un proxy CORS.');
             } else {
                 MessageHandler.showError(`Error al agregar contacto: ${error.message}`);
             }
@@ -228,9 +253,9 @@ class Agenda {
         }
 
         const filteredContacts = this.contacts.filter(contact => 
-            contact.nombre.toLowerCase().includes(query.toLowerCase()) ||
-            contact.apellido.toLowerCase().includes(query.toLowerCase()) ||
-            contact.telefono.includes(query)
+            (contact.nombre || '').toLowerCase().includes(query.toLowerCase()) ||
+            (contact.apellido || '').toLowerCase().includes(query.toLowerCase()) ||
+            (contact.telefono || '').includes(query)
         );
 
         UIManager.displayContacts(filteredContacts);
@@ -328,24 +353,57 @@ class UIManager {
         contactsContainer.innerHTML = `
             <div class="error-state cors-error">
                 <div class="error-icon">🚫</div>
-                <h3>Error de CORS</h3>
+                <h3>Error de CORS Detectado</h3>
                 <p>No se puede conectar con la API debido a restricciones de CORS.</p>
                 
                 <div class="cors-solutions">
-                    <h4>Soluciones posibles:</h4>
-                    <ul>
-                        <li>Ejecutar desde un servidor web local (no abrir el archivo directamente)</li>
-                        <li>Usar Live Server en VS Code</li>
-                        <li>Instalar una extensión de navegador para deshabilitar CORS temporalmente</li>
-                        <li>Usar un proxy CORS online</li>
-                    </ul>
+                    <h4>🔧 Soluciones Rápidas:</h4>
+                    <div class="solution-option">
+                        <strong>Opción 1: Usar Proxy CORS</strong>
+                        <p>Descomenta una de las líneas del proxy en el código JavaScript (líneas 5-7)</p>
+                    </div>
+                    
+                    <div class="solution-option">
+                        <strong>Opción 2: Servidor Local</strong>
+                        <p>Usa Live Server en VS Code o ejecuta un servidor HTTP local</p>
+                    </div>
+                    
+                    <div class="solution-option">
+                        <strong>Opción 3: Extensión de Navegador</strong>
+                        <p>Instala "CORS Unblock" o "Disable CORS" (solo para desarrollo)</p>
+                    </div>
+                    
+                    <div class="solution-option">
+                        <strong>Opción 4: Chrome con CORS Deshabilitado</strong>
+                        <p>Ejecuta Chrome con: <code>--disable-web-security --user-data-dir="[path]"</code></p>
+                    </div>
                 </div>
                 
-                <button onclick="window.location.reload()" class="btn btn-retry">
-                    🔄 Reintentar
-                </button>
+                <div style="margin-top: 20px;">
+                    <button onclick="window.location.reload()" class="btn btn-retry">
+                        🔄 Reintentar
+                    </button>
+                    <button onclick="UIManager.showTestData()" class="btn btn-test" style="margin-left: 10px;">
+                        📝 Ver Datos de Prueba
+                    </button>
+                </div>
             </div>
         `;
+    }
+
+    /**
+     * Muestra datos de prueba para desarrollo
+     */
+    static showTestData() {
+        const testContacts = [
+            { nombre: "Juan", apellido: "Pérez", telefono: "8091234567" },
+            { nombre: "María", apellido: "González", telefono: "8097654321" },
+            { nombre: "Pedro", apellido: "Martínez", telefono: "8095551234" }
+        ];
+        
+        this.displayContacts(testContacts);
+        this.updateContactCount(testContacts.length);
+        MessageHandler.showWarning("Mostrando datos de prueba. La API real no está disponible debido a CORS.");
     }
 
     /**
@@ -374,8 +432,8 @@ class UIManager {
      * Crea una tarjeta de contacto
      */
     static createContactCard(contact, index) {
-        const formattedPhone = Utils.formatPhone(contact.telefono);
-        const fullName = `${contact.nombre} ${contact.apellido}`;
+        const formattedPhone = Utils.formatPhone(contact.telefono || '');
+        const fullName = `${contact.nombre || ''} ${contact.apellido || ''}`.trim();
         
         return `
             <div class="contact-card" style="animation-delay: ${index * 0.1}s">
@@ -386,12 +444,12 @@ class UIManager {
                     <div class="contact-name" title="${fullName}">
                         ${fullName}
                     </div>
-                    <div class="contact-phone" title="${contact.telefono}">
+                    <div class="contact-phone" title="${contact.telefono || ''}">
                         📞 ${formattedPhone}
                     </div>
                 </div>
                 <div class="contact-actions">
-                    <button class="btn-call" onclick="Utils.callPhone('${contact.telefono}')" title="Llamar">
+                    <button class="btn-call" onclick="Utils.callPhone('${contact.telefono || ''}')" title="Llamar">
                         📞
                     </button>
                 </div>
@@ -432,6 +490,7 @@ class Validator {
      * Valida el formato del teléfono
      */
     static isValidPhone(phone) {
+        if (!phone) return false;
         const cleanPhone = phone.replace(/\D/g, '');
         return cleanPhone.length >= 7 && cleanPhone.length <= 15;
     }
@@ -440,6 +499,7 @@ class Validator {
      * Valida el nombre (solo letras, espacios y caracteres especiales)
      */
     static isValidName(name) {
+        if (!name) return false;
         const nameRegex = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s'-]+$/;
         return nameRegex.test(name) && name.length >= 2 && name.length <= 50;
     }
@@ -448,6 +508,7 @@ class Validator {
      * Limpia y formatea el texto
      */
     static sanitizeText(text) {
+        if (!text) return '';
         return text.trim().replace(/\s+/g, ' ');
     }
 
@@ -508,6 +569,7 @@ class Utils {
      * Formatea el número de teléfono para mostrar
      */
     static formatPhone(phone) {
+        if (!phone) return '';
         const cleaned = phone.replace(/\D/g, '');
         
         if (cleaned.length === 10) {
@@ -523,6 +585,7 @@ class Utils {
      * Obtiene las iniciales de un nombre
      */
     static getInitials(fullName) {
+        if (!fullName) return '??';
         return fullName
             .split(' ')
             .map(name => name.charAt(0).toUpperCase())
@@ -534,8 +597,9 @@ class Utils {
      * Capitaliza la primera letra de cada palabra
      */
     static capitalizeWords(str) {
+        if (!str) return '';
         return str.replace(/\w\S*/g, (txt) => 
-            txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
+            txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase()
         );
     }
 
@@ -543,7 +607,9 @@ class Utils {
      * Inicia una llamada telefónica
      */
     static callPhone(phone) {
-        window.open(`tel:${phone}`, '_self');
+        if (phone) {
+            window.open(`tel:${phone}`, '_self');
+        }
     }
 
     /**
@@ -563,6 +629,13 @@ class Utils {
  * INICIALIZACIÓN DE LA APLICACIÓN
  */
 document.addEventListener('DOMContentLoaded', () => {
+    // Inicializar elementos del DOM
+    contactForm = document.getElementById('contact-form');
+    contactsContainer = document.getElementById('contacts-container');
+    messageContainer = document.getElementById('message-container');
+    refreshBtn = document.getElementById('refresh-btn');
+    contactCount = document.getElementById('contact-count');
+    
     // Verificar que existan los elementos necesarios
     if (!contactForm || !contactsContainer) {
         console.error('❌ Elementos del DOM no encontrados. Verifica el HTML.');
